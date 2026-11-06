@@ -7,6 +7,9 @@
  * the same 9-byte instruction with another displacement. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#ifdef __aarch64__
+#include "guest_cpu.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,9 +90,13 @@ static void set_gs(void *base) {
 }
 #define tls_block_alloc(size) _aligned_malloc(size,64)
 #else
+#ifdef __aarch64__
+static void set_gs(void *base) { guest_cpu_set_tls_base((uintptr_t)base); }
+#else
 static void set_gs(void *base) {
     if (syscall(SYS_arch_prctl,ARCH_SET_GS,(unsigned long)base)) { perror("STOP: arch_prctl(ARCH_SET_GS)"); exit(21); }
 }
+#endif
 #define tls_block_alloc(size) aligned_alloc(64,size)
 #endif
 static uint64_t os_thread_id(void) {
@@ -385,7 +392,13 @@ static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,
     if (!t) return ERR(12);
     if (a) { t->attr=*a; t->attr.next=NULL; }
     t->entry=entry; t->argument=argument; t->detached=t->attr.detached;
+#ifdef __aarch64__
+    /* ARM64: no x87 FPU state to capture; guest FP is managed by FEXCore. */
+    t->fp_mxcsr = 0x1f80;  /* default MXCSR */
+    t->fp_x87cw = 0x037f; /* default x87 control word */
+#else
     __asm__ volatile("stmxcsr %0\n\tfnstcw %1" : "=m"(t->fp_mxcsr), "=m"(t->fp_x87cw));
+#endif
     snprintf(t->name,sizeof(t->name),"%s",name ? name : "guest");
     pthread_attr_t host;
     pthread_attr_init(&host);
