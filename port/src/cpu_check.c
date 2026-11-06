@@ -1,15 +1,19 @@
 #include "cpu_check.h"
+#ifdef __x86_64__
 #include <cpuid.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 
 CpuFeatureWords cpu_feature_words(void) {
     CpuFeatureWords words = {0, 0, 0};
+#ifdef __x86_64__
     unsigned a = 0, b = 0, c = 0, d = 0;
     if (__get_cpuid(1, &a, &b, &c, &d)) words.leaf1_ecx = c;
     if (__get_cpuid_count(7, 0, &a, &b, &c, &d)) words.leaf7_ebx = b;
     if (__get_cpuid(0x80000001, &a, &b, &c, &d)) words.ext1_ecx = c;
-    (void)a; (void)d;
+#endif
+    (void)a; (void)b; (void)c; (void)d;
     return words;
 }
 
