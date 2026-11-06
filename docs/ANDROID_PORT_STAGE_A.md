@@ -2,8 +2,10 @@
 
 ## Status (Updated 2026-11-06)
 - **Stage A**: In progress. All guest_cpu_* stubs in place, compile testing passing.
-- **Runtime Audit**: Complete - 8 files rewritten for ARM64, 9 commits on `setup-and-catch-up-qwen`.
-- **Next**: Begin FEXCore integration (Stage B). All fiber blockers resolved (runtime_gr2.c → pthread-based emulation).
+- **Runtime Audit**: Complete - 8 files rewritten for ARM64, 10 commits on `setup-and-catch-up-qwen`.
+- **FEXCore**: Added as Git submodule at `port/third_party/FEXCore` (commit `c985199`, tag `FEX-2611`).
+  Pinned to a specific tag/commit per the stage plan ("Integrate FEXCore with pinned version").
+- **Next**: Wire up guest_cpu_init/run/shutdown to actual FEXCore library calls.
 
 ### Runtime Files Processed
 | File | Status | Changes |

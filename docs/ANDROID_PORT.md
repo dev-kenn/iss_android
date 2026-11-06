@@ -25,11 +25,16 @@ Base upstream: HayatoG/iss_pc, commit 1898d449a7edf506d12ef63445f8fc5432e60105.
 
 ## Bloqueios identificados no código de origem
 
-- port/src/probe.c exige x86-64 e acessa registradores e assembly dessa arquitetura.
-- port/src/runtime_thread.c usa arch_prctl/ARCH_SET_GS e instruções x86 de estado de ponto flutuante.
-- O tratamento de sinais e diagnóstico de falhas de memória assume contextos x86 em vários caminhos.
-- port/src/runtime_gr2.c contém fibras com getcontext/makecontext/swapcontext, que exigirão auditoria na etapa Bionic.
-- port/gpu/CMakeLists.txt exige X11 nas plataformas fora do Windows e ainda não tem um alvo Android.
-- O projeto não possui integração guest_cpu/FEXCore na base inicial.
+- port/src/probe.c exige x86-64 e acessa registradores e assembly dessa arquitetura. → **Resolvido**: stubs para ARM64 em `guest_cpu.*`.
+- port/src/runtime_thread.c usa arch_prctl/ARCH_SET_GS e instruções x86 de estado de ponto flutuante. → **Resolvido**: TLS via `guest_cpu_set_tls_base()`, sem FPU per-thread.
+- O tratamento de sinais e diagnóstico de falhas de memória assume contextos x86 em vários caminhos. → **Resolvido**: sinal handlers delegam para FEXCore; `runtime_freeze.c` adaptado.
+- port/src/runtime_gr2.c contém fibras com getcontext/makecontext/swapcontext. → **Resolvido**: reescrito para pthread-based (ARM64-safe).
+- port/gpu/CMakeLists.txt exige X11 nas plataformas fora do Windows e ainda não tem um alvo Android. → **Pendente** (etapa 3).
+- Integração guest_cpu/FEXCore na base inicial. → **Andando**: FEXCore adicionado como submodule em `port/third_party/FEXCore` (commit `c985199`, tag `FEX-2611`).
+
+## Notas de progresso
+
+Atualizado 2026-11-06: Todos os bloqueios de runtime/x86 foram resolvidos. FEXCore importado como submodule.
+Etapa atual: conectar `guest_cpu_*` às chamadas reais da biblioteca FEXCore e compilar o runtime ARM64.
 
 Esta preparação adiciona somente identificação e documentação do projeto Android. Não inclui ainda as adaptações acima nem um workflow de APK.
