@@ -18,7 +18,11 @@
 #include <unistd.h>
 #ifndef _WIN32
 #include <sys/random.h>
+#if defined(__linux__) || defined(__FreeBSD__)
 #include <ucontext.h>
+#else
+#warning "no ucontext.h for this POSIX target; guest fibers will use pthread fallback"
+#endif
 #else
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
