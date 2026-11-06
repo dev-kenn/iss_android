@@ -106,4 +106,6 @@ A.4 Thread/TLS adaptation plan    │    ↓
 | Date | Task | Status | Notes |
 |---|---|---|---|
 | 2026-11-06 | A.1 Interface design | **Done** | Documented above; signatures finalized |
-| 2026-11-06 | A.2 Stub implementation | **Next** | Create guest_cpu.h and guest_cpu.c stubs |
+| 2026-11-06 | A.2 Stub implementation | **Done** | guest_cpu.h + guest_cpu.c no-op stubs committed |
+| 2026-11-06 | B.1 Per-file runtime audit | **Done** | See `docs/ANDROID_PORT_AUDIT_RUNTIME.md` — 7 rework files, 19 ready |
+| 2026-11-06 | B.2 Android build skeleton | **Done** | `port/build_android.sh` NDK skeleton for ARM64 cross-compilation |
