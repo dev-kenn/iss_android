@@ -201,8 +201,13 @@ static void capture_signal(int sig, siginfo_t *info, void *context) {
     int saved = errno;
     if (__atomic_load_n(&capture_tid, __ATOMIC_ACQUIRE) == gettid()) {
         Capture *c = __atomic_load_n(&capture_out, __ATOMIC_ACQUIRE);
+#ifdef __x86_64__
         const greg_t *g = ((ucontext_t *)context)->uc_mcontext.gregs;
         c->rip = (uintptr_t)g[REG_RIP]; c->rsp = (uintptr_t)g[REG_RSP]; c->rbp = (uintptr_t)g[REG_RBP];
+#else
+        /* ARM64/other: guest CPU registers handled by FEXCore. */
+        c->rip = 0; c->rsp = 0; c->rbp = 0;
+#endif
         c->frames = walk_frames(c->rbp, c->chain, MAX_FRAMES);
         c->captured = 1;
         __atomic_store_n(&capture_done, 1, __ATOMIC_RELEASE);
