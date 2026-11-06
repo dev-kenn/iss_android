@@ -2,7 +2,7 @@
 
 ## Status (Updated 2026-11-06)
 - **Stage A**: In progress. All guest_cpu_* stubs in place, compile testing passing.
-- **Runtime Audit**: Complete - 7 files rewritten for ARM64, 5 commits on `setup-and-catch-up-qwen`.
+- **Runtime Audit**: Complete - 7 files rewritten for ARM64, 8 commits on `setup-and-catch-up-qwen`.
 - **Next**: Begin FEXCore integration (Stage B) and handle remaining ucontext fibers (runtime_gr2.c).
 
 ### Runtime Files Processed
