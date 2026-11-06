@@ -40,13 +40,13 @@ These 18 files need **no changes** for ARM64 — they use only POSIX libc, pthre
 - `runtime_services.c` (NP/system services)
 - `runtime_time.c` (POSIX clocks)
 
-### Summary: Blocker Severity
+### Summary: Blocker Severity (Updated 2026-11-06)
 
-| Severity | Count | Files | Action |
+| Severity | Count | Files | Status |
 |----------|-------|-------|--------|
-| **Critical** | 3 | probe.c, runtime_thread.c, runtime_gr2.c | Complete rewrite for ARM64/FEXCore model |
-| **High** | 4 | cpu_check.c, runtime_freeze.c, runtime_kernel.c | Replace x86 intrinsics with ARM64 equivalents or FEXCore hooks |
-| **Medium** | 3 | runtime.c (TLS), isa_emulate.c, isa_rewrite.c | Wire up to FEXCore, no code rewrite needed |
-| **None** | 18 | All files listed above | No changes needed |
+| **Critical** | 3 | probe.c, runtime_thread.c, runtime_gr2.c | 2/3 Done; runtime_gr2.c still has x86 fibers |
+| **High** | 4 | cpu_check.c, runtime_freeze.c, runtime_kernel.c, (runtime_memory*) | 2/4 Done; cpu_check.c pending |
+| **Medium** | 3 | runtime.c (TLS), isa_emulate.c, isa_rewrite.c | Wire up to FEXCore later |
+| **None** | 18+ | All files listed above | No changes needed |
 
-Total: ~26+ files audited. 7 require active rework; 19 are ARM64-ready or need only wiring.
+Total: ~26+ files audited. 7 require active rework; 19+ are ARM64-ready or need only wiring.
