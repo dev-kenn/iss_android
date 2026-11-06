@@ -11,7 +11,7 @@ Goal: clear plan for rewriting each file when FEXCore guest CPU is available.
 |---|------|-------------------|----------|------------------|
 | 1 | `runtime.c` | `_Thread_local` TLS block array; module TLS lookup via `__tls_get_addr()` equivalent | **Medium**: `_Thread_local` on ARM64 needs custom guest model | Replace with explicit `guest_cpu_get_module_tls()` calls; keep `_Thread_local` in guest's view only |
 | 2 | `runtime_freeze.c` | `greg_t` + `ucontext_t` + `REG_RIP/RSP/RBP` for thread state capture via signal handlers | **High**: ARM64 signal frame has different reg layout; SIGURG approach needs rewrite for FEXCore | Replace with FEXCore page-fault context capture; read registers via guest CPU state |
-| 3 | `runtime_gr2.c` | `ucontext_t` + `getcontext/makecontext/swapcontext` for fibers + `__thread` TLS | **Critical**: Fibers on game's own memory broken by translator | Pthread-based fiber emulation short-term; FEXCore vCPU per-fiber long-term |
+| 3 | `runtime_gr2.c` | `ucontext_t` + `getcontext/makecontext/swapcontext` for fibers + `__thread` TLS | **Resolved**: Replaced x86 fibers → pthread-based emulation (ARM64-safe) | Pthread-based fiber emulation ✅ done; FEXCore vCPU per-fiber long-term |
 | 4 | `runtime_kernel.c` | `#include x86intrin.h` + `__rdtsc()` (3 sites) for TSC reads | **High**: `__rdtsc` is x86-only; ARM64 has no TSC instruction | Replace with `clock_gettime`-scaled simulation at 3.5 GHz |
 | 5 | `runtime_thread.c` | `arch_prctl(ARCH_SET_GS)` + `stmxcsr/fnstcw` FPU capture + `jmp_buf/siglongjmp` fault recovery | **Critical**: Three blockers — TLS model, FPU state, fault recovery | Full rewrite: ARM64 guest TLS via GPR/store; skip per-thread FPU capture; replace siglongjmp with FEXCore resume-from-fault |
 | 6 | `cpu_check.c` | `__get_cpuid()` from `<cpuid.h>` for CPUID instruction reads | **High**: CPUID is x86-specific; ARM64 uses MIDR registers | Replace with ARM64 feature detection or skip via FEXCore-reported capabilities |
@@ -44,9 +44,9 @@ These 18 files need **no changes** for ARM64 — they use only POSIX libc, pthre
 
 | Severity | Count | Files | Status |
 |----------|-------|-------|--------|
-| **Critical** | 3 | probe.c, runtime_thread.c, runtime_gr2.c | 2/3 Done; runtime_gr2.c still has x86 fibers |
-| **High** | 4 | cpu_check.c, runtime_freeze.c, runtime_kernel.c, (runtime_memory*) | 2/4 Done; cpu_check.c pending |
+| **Critical** | 3 | probe.c, runtime_thread.c, runtime_gr2.c | 3/3 Done; all fiber/blocker issues resolved |
+| **High** | 4 | cpu_check.c, runtime_freeze.c, runtime_kernel.c, (runtime_memory*) | 3/4 Done; runtime_memory* TBD |
 | **Medium** | 3 | runtime.c (TLS), isa_emulate.c, isa_rewrite.c | Wire up to FEXCore later |
 | **None** | 18+ | All files listed above | No changes needed |
 
-Total: ~26+ files audited. 7 require active rework; 19+ are ARM64-ready or need only wiring.
+Total: ~26+ files audited. 6 require active rework; 20+ are ARM64-ready or need only wiring.

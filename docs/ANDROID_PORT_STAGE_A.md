@@ -2,8 +2,8 @@
 
 ## Status (Updated 2026-11-06)
 - **Stage A**: In progress. All guest_cpu_* stubs in place, compile testing passing.
-- **Runtime Audit**: Complete - 7 files rewritten for ARM64, 8 commits on `setup-and-catch-up-qwen`.
-- **Next**: Begin FEXCore integration (Stage B) and handle remaining ucontext fibers (runtime_gr2.c).
+- **Runtime Audit**: Complete - 8 files rewritten for ARM64, 9 commits on `setup-and-catch-up-qwen`.
+- **Next**: Begin FEXCore integration (Stage B). All fiber blockers resolved (runtime_gr2.c → pthread-based emulation).
 
 ### Runtime Files Processed
 | File | Status | Changes |
@@ -11,7 +11,7 @@
 | `runtime_kernel.c` | ✅ Done | Replaced `__rdtsc` with ARM64 TSC (`CLOCK_MONOTONIC`) |
 | `runtime_thread.c` | ✅ Done | `arch_prctl(ARCH_SET_GS)` → `guest_cpu_set_tls_base()` |
 | `probe.c` | ✅ Done | Removed `#error`, added ARM64 stub implementations |
-| `runtime_gr2.c` | 🔄 Partial | Conditional `ucontext.h` include (x86 fibers still present) |
+| `runtime_gr2.c` | ✅ Done | Replaced ucontext fiber makecontext/swapcontext → pthread-based emulation (ARM64-safe) |
 | `runtime_freeze.c` | ✅ Done | Cross-platform register capture (`greg_t` → `__x86_64__` guard) |
 
 ## Purpose

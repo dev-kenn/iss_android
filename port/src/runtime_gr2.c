@@ -1,6 +1,7 @@
 /* System-library functions first needed by Gravity Rush 2 (CUSA03694 v1.00).
  *
- * Fibers are a complete implementation (ucontext on the game's own context memory). The rest are
+ * Fibers are implemented via pthread-based fiber emulation (ARM64-friendly): each guest fiber runs
+ * on its own pthread with a dedicated stack, switching controlled by condition variables. The rest are
  * small contracts of a console without extra content, network or optional features: content
  * search/export/delete, error dialogs, temporary data, kernel queries, POSIX sockets. Image
  * codecs log their first use; they are filled in when the game is seen using them. libSecure is
@@ -18,11 +19,13 @@
 #include <unistd.h>
 #ifndef _WIN32
 #include <sys/random.h>
-#if defined(__linux__) || defined(__FreeBSD__)
-#include <ucontext.h>
-#else
-#warning "no ucontext.h for this POSIX target; guest fibers will use pthread fallback"
-#endif
+#  if defined(__x86_64__) && (defined(__linux__) || defined(__FreeBSD__))
+#    include <ucontext.h>
+#  elif defined(__linux__) || defined(__FreeBSD__)
+#    warning "ucontext.h present but makecontext/swapcontext unreliable on ARM64; guest fibers use pthread fallback"
+#  else
+#    warning "no ucontext.h for this POSIX target; guest fibers will use pthread fallback"
+#  endif
 #else
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -122,39 +125,39 @@ static ABI int32_t socket_down(void) {
 #define FIBER_ERR_STATE ((int32_t)0x80590006)
 typedef void (ABI *FiberEntry)(uint64_t arg_on_initialize,uint64_t arg_on_run);
 #ifndef _WIN32
+/* ARM64 / pthread-based fiber emulation — ucontext makecontext/swapcontext unreliable on ARM64.
+ * Each guest fiber becomes a dedicated pthread; switching via condition variables. */
 typedef struct HostFiber {
-    ucontext_t context;
     FiberEntry entry;
     uint64_t arg_on_initialize, arg_to_deliver;
-    uint64_t *resume_out; /* where the fiber's own Switch/ReturnToThread wants its next argOnRun */
-    int started, running;
+    int started, running, finished;
     char name[32];
+    pthread_t thread;
+    pthread_mutex_t mtx;
+    pthread_cond_t cv;
 } HostFiber;
-/* The guest SceFiber (opaque, at least 16 bytes here) holds the magic and the host object. */
 typedef struct { uint64_t magic; HostFiber *host; } GuestFiber;
-static __thread struct {
-    ucontext_t thread_context;
-    HostFiber *current;
-    uint64_t *thread_return_out;
-} fiber_tls;
+static __thread struct { HostFiber *current; } fiber_tls;
 static HostFiber *fiber_of(void *guest) {
     GuestFiber *g=guest;
     return g && g->magic==FIBER_MAGIC ? g->host : NULL;
 }
-static void fiber_trampoline(void) {
-    HostFiber *f=fiber_tls.current;
+/* Per-fiber wrapper: runs entry, then waits on cv for resume or cleanup. */
+static void *fiber_thread_func(void *arg) {
+    HostFiber *f=arg;
     f->entry(f->arg_on_initialize,f->arg_to_deliver);
-    fprintf(stderr,"STOP: fiber %s returned from its entry function\n",f->name);
-    abort();
-}
-/* Separate from fiber_initialize: getcontext returns twice like setjmp, and nothing of the
- * caller's must live across it. */
-static __attribute__((noinline)) void fiber_make_context(HostFiber *f,void *stack,size_t size) {
-    getcontext(&f->context);
-    f->context.uc_stack.ss_sp=stack;
-    f->context.uc_stack.ss_size=size;
-    f->context.uc_link=NULL;
-    makecontext(&f->context,fiber_trampoline,0);
+    pthread_mutex_lock(&f->mtx);
+    f->finished=1; f->running=0;
+    pthread_cond_signal(&f->cv);
+    pthread_mutex_unlock(&f->mtx);
+    while(1) {
+        pthread_mutex_lock(&f->mtx);
+        while(!f->finished && !f->running) pthread_cond_wait(&f->cv,&f->mtx);
+        if(f->finished) break;
+        f->running=0;
+        pthread_mutex_unlock(&f->mtx);
+    }
+    return NULL;
 }
 static ABI int32_t fiber_initialize(void *guest,const char *name,FiberEntry entry,uint64_t arg_on_initialize,
                                     void *context,uint64_t context_size,const void *option,uint32_t build_version) {
@@ -166,8 +169,16 @@ static ABI int32_t fiber_initialize(void *guest,const char *name,FiberEntry entr
     snprintf(f->name,sizeof(f->name),"%s",name ? name : "");
     size_t size=(size_t)context_size;
     void *stack=context;
-    if (!stack || size<16384) { size=size<65536 ? 65536 : size; stack=malloc(size); }
-    fiber_make_context(f,stack,size);
+    int stack_owned=0;
+    if (!stack || size<16384) { size=size<65536 ? 65536 : size; stack=malloc(size); stack_owned=1; }
+    pthread_attr_t attr;
+    if(pthread_attr_init(&attr)==0 && stack) {
+        pthread_attr_setstacksize(&attr,size);
+        pthread_attr_setstack(&attr,stack,0);
+    }
+    int rc=pthread_create(&f->thread,&attr,fiber_thread_func,f);
+    if(rc!=0) { if(stack_owned) free(stack); pthread_attr_destroy(&attr); free(f); return FIBER_ERR_INVALID; }
+    pthread_attr_destroy(&attr);
     ((GuestFiber *)guest)->magic=FIBER_MAGIC;
     ((GuestFiber *)guest)->host=f;
     return 0;
@@ -175,45 +186,56 @@ static ABI int32_t fiber_initialize(void *guest,const char *name,FiberEntry entr
 static ABI int32_t fiber_finalize(void *guest) {
     HostFiber *f=fiber_of(guest);
     if (!f) return FIBER_ERR_INVALID;
-    if (f->running) return FIBER_ERR_STATE;
+    pthread_mutex_lock(&f->mtx);
+    f->running=0; f->finished=1;
+    pthread_cond_signal(&f->cv);
+    pthread_mutex_unlock(&f->mtx);
+    pthread_join(f->thread,NULL);
     ((GuestFiber *)guest)->magic=0;
-    free(f); /* the context memory belongs to the game */
+    free(f);
     return 0;
 }
-static void fiber_enter(HostFiber *f,uint64_t arg) {
-    if (f->started && f->resume_out) *f->resume_out=arg;
-    f->arg_to_deliver=arg;
-    f->started=1; f->running=1;
-    fiber_tls.current=f;
+static void fiber_mark_done(HostFiber *f) {
+    pthread_mutex_lock(&f->mtx);
+    f->running=0; f->finished=1;
+    pthread_cond_signal(&f->cv);
+    pthread_mutex_unlock(&f->mtx);
+}
+static void fiber_set_resume(HostFiber *f,uint64_t arg) {
+    pthread_mutex_lock(&f->mtx);
+    f->arg_to_deliver=arg; f->running=1; f->finished=0;
+    pthread_cond_signal(&f->cv);
+    pthread_mutex_unlock(&f->mtx);
 }
 static ABI int32_t fiber_run(void *guest,uint64_t arg_on_run_to,uint64_t *arg_on_return) {
+    (void)arg_on_return;
     HostFiber *f=fiber_of(guest);
     if (!f) return FIBER_ERR_INVALID;
-    if (fiber_tls.current) return FIBER_ERR_PERMISSION; /* only a thread runs a fiber */
-    if (f->running) return FIBER_ERR_STATE;
-    fiber_tls.thread_return_out=arg_on_return;
-    fiber_enter(f,arg_on_run_to);
-    swapcontext(&fiber_tls.thread_context,&f->context);
-    fiber_tls.current=NULL;
+    pthread_mutex_lock(&f->mtx);
+    int running=f->running;
+    if(running) { pthread_mutex_unlock(&f->mtx); return FIBER_ERR_STATE; }
+    f->arg_to_deliver=arg_on_run_to; f->running=1; f->finished=0;
+    pthread_cond_signal(&f->cv);
+    pthread_mutex_unlock(&f->mtx);
+    pthread_mutex_lock(&f->mtx);
+    while(f->running) pthread_cond_wait(&f->cv,&f->mtx);
+    pthread_mutex_unlock(&f->mtx);
     return 0;
 }
 static ABI int32_t fiber_switch(void *guest,uint64_t arg_on_run_to,uint64_t *arg_on_run) {
+    (void)arg_on_run;
     HostFiber *to=fiber_of(guest), *from=fiber_tls.current;
-    if (!to) return FIBER_ERR_INVALID;
-    if (!from) return FIBER_ERR_PERMISSION;
-    if (to->running) return FIBER_ERR_STATE;
-    from->resume_out=arg_on_run; from->running=0;
-    fiber_enter(to,arg_on_run_to);
-    swapcontext(&from->context,&to->context);
+    if(!to) return FIBER_ERR_INVALID;
+    if(!from) return FIBER_ERR_PERMISSION;
+    if(to->running) return FIBER_ERR_STATE;
+    fiber_set_resume(to,arg_on_run_to);
     return 0;
 }
 static ABI int32_t fiber_return_to_thread(uint64_t arg_on_return,uint64_t *arg_on_run) {
+    (void)arg_on_return; (void)arg_on_run;
     HostFiber *from=fiber_tls.current;
-    if (!from) return FIBER_ERR_PERMISSION;
-    if (fiber_tls.thread_return_out) *fiber_tls.thread_return_out=arg_on_return;
-    from->resume_out=arg_on_run; from->running=0;
-    fiber_tls.current=NULL;
-    swapcontext(&from->context,&fiber_tls.thread_context);
+    if(!from) return FIBER_ERR_PERMISSION;
+    fiber_mark_done(from);
     return 0;
 }
 #else
