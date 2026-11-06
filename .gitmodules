@@ -19,3 +19,6 @@
 [submodule "port/gpu/third_party/vulkan-headers"]
 	path = port/gpu/third_party/vulkan-headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "port/third_party/FEXCore"]
+	path = port/third_party/FEXCore
+	url = https://github.com/FEX-Emu/FEX.git
