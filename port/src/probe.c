@@ -15,9 +15,21 @@
 #include "damage_hook.h"
 #include "view_hook.h"
 #include "gpu/tlggpu.h"
-#if !defined(__x86_64__) || !defined(__GNUC__)
-#error This prototype requires x86-64 GCC or Clang (including MinGW).
+
+/* x86-64 probe/main. For non-x86 targets (Android/ARM64), provide minimal stubs so the
+ * linker has symbols; real guest execution happens via FEXCore in a later stage. */
+#ifndef __x86_64__
+#ifndef __GNUC__
+/* Only GCC/Clang x86-64 is fully supported. Non-GCC gets warnings but still compiles stubs. */
+#warning "probe.c: non-x86-64 GCC target; providing minimal stubs for linkage"
 #endif
+
+/* ARM64/AARCH64 stubs: no-op functions that satisfy the linker. */
+void runtime_init(void) { fputs("Runtime: ARM64 guest (stub)\n", stderr); }
+void runtime_restart(void) { /* no-op on ARM64; use TLG_RESTART_COMMAND on x86-64 */ }
+int32_t runtime_check_cpu_features(int cpu_flags) { return 0; }
+
+#else /* __x86_64__ -- full x86-64 implementation below */
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -1374,3 +1386,4 @@ int main(int argc, char **argv) {
 #endif
     fail("entry unexpectedly returned");
 }
+#endif /* __x86_64__ */
