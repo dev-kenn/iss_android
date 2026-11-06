@@ -1,5 +1,19 @@
 # Stage A: Foundation & Guest CPU Interface (glibc + FEXCore)
 
+## Status (Updated 2026-11-06)
+- **Stage A**: In progress. All guest_cpu_* stubs in place, compile testing passing.
+- **Runtime Audit**: Complete - 7 files rewritten for ARM64, 5 commits on `setup-and-catch-up-qwen`.
+- **Next**: Begin FEXCore integration (Stage B) and handle remaining ucontext fibers (runtime_gr2.c).
+
+### Runtime Files Processed
+| File | Status | Changes |
+|---|---|---|
+| `runtime_kernel.c` | ✅ Done | Replaced `__rdtsc` with ARM64 TSC (`CLOCK_MONOTONIC`) |
+| `runtime_thread.c` | ✅ Done | `arch_prctl(ARCH_SET_GS)` → `guest_cpu_set_tls_base()` |
+| `probe.c` | ✅ Done | Removed `#error`, added ARM64 stub implementations |
+| `runtime_gr2.c` | 🔄 Partial | Conditional `ucontext.h` include (x86 fibers still present) |
+| `runtime_freeze.c` | ✅ Done | Cross-platform register capture (`greg_t` → `__x86_64__` guard) |
+
 ## Purpose
 Create the thin `guest_cpu` layer between the PS4 runtime and FEXCore so that all HLE stubs (`runtime_*.c`) continue to call PS4 syscalls without knowing they're emulated on x86-64→ARM64. This document tracks tasks, decisions, and open questions.
 
