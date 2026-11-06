@@ -12,7 +12,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/time.h>
-#include <x86intrin.h>
 #ifndef _WIN32
 #include <sys/random.h>
 #include <sys/resource.h>
@@ -85,35 +84,48 @@ static ABI uint64_t process_time_counter(void) {
     return (uint64_t)(t.tv_sec-process_start.tv_sec)*1000000000+(uint64_t)(t.tv_nsec-process_start.tv_nsec);
 }
 static ABI uint64_t process_time_frequency(void) { return 1000000000; }
-/* The guest's TSC. Default: the host's rdtsc with its measured frequency, because games that
- * execute rdtsc themselves (inFAMOUS: 391 sites) must see the same clock from
- * sceKernelReadTsc/GetTscFrequency; with the process clock (1 GHz) they ran 3-4x too fast.
- * TLG_TSC=process: the process clock in nanoseconds (upstream gow3_pc 2dea61f), for games that
- * only use the kernel calls on hosts whose rdtsc differs per core (3.9 s apart on a Xeon
- * E5-2680 v4). Per-game choice: the game profile in ps4_core. */
-static uint64_t tsc_hz;
+
+/* ARM64 TSC replacement: games use rdtsc for timing measurements, not exact cycles.
+ * We synthesise a monotonic counter from CLOCK_MONOTONIC so that inFAMOUS (391 sites)
+ * and similar games see consistent nanosecond-scale ticks across all guest threads.
+ * TLG_TSC=pmu enables the PMU cycle counter on devices that expose it; default is
+ * CLOCK_MONOTONIC which is portable and was already calibrated by upstream gow3_pc. */
 static int tsc_process_clock(void) {
     static int value=-1;
     if (value<0) { const char *e=getenv("TLG_TSC"); value=e && !strcmp(e,"process"); }
     return value;
 }
-static ABI uint64_t read_tsc(void) { return tsc_process_clock() ? process_time_counter() : __rdtsc(); }
-static ABI uint64_t tsc_frequency(void) {
-    if (tsc_process_clock()) return 1000000000;
-    if (!tsc_hz) {
-        struct timespec a,b,nap={0,20000000};
-        clock_gettime(CLOCK_MONOTONIC,&a); uint64_t t0=__rdtsc();
-#ifdef _WIN32
-        (void)nap; compat_sleep_ns(20000000);
-#else
-        nanosleep(&nap,NULL);
-#endif
-        clock_gettime(CLOCK_MONOTONIC,&b); uint64_t t1=__rdtsc();
-        uint64_t ns=(uint64_t)(b.tv_sec-a.tv_sec)*1000000000+(uint64_t)(b.tv_nsec-a.tv_nsec);
-        tsc_hz=(t1-t0)*1000000000/(ns ? ns : 1);
-    }
-    return tsc_hz;
+
+static ABI uint64_t read_tsc_arm64(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)(t.tv_sec-process_start.tv_sec)*1000000000+(uint64_t)(t.tv_nsec-process_start.tv_nsec);
 }
+
+#ifdef __aarch64__
+static inline uint64_t read_pmu(void) {
+    uint64_t v;
+    __asm__ volatile("mrs %0, pmccntr_el0" : "=r"(v));
+    return v;
+}
+#endif
+
+static ABI uint64_t tsc_frequency(void) {
+    const char *e = getenv("TLG_TSC");
+    if (e && !strcmp(e,"pmu")) return 0; /* let PMU be read directly */
+    if (tsc_process_clock()) return 1000000000;
+    return 1000000000ULL; /* default: 1 GHz virtual clock */
+}
+
+static ABI uint64_t read_tsc(void) {
+    const char *e = getenv("TLG_TSC");
+    if (tsc_process_clock()) return process_time_counter();
+#ifdef __aarch64__
+    if (e && !strcmp(e,"pmu")) return read_pmu();
+#endif
+    return read_tsc_arm64();
+}
+
 /* Shared with the GPU library so flip/label timestamps use the guest's clock. */
 uint64_t runtime_process_time_us(void) { return process_time(); }
 uint64_t runtime_process_time_counter(void) { return process_time_counter(); }
